@@ -1,6 +1,6 @@
 #define PLF_COLONY_TEST_DEBUG
 
-#if defined(_MSC_VER)
+#if defined(_MSC_VER) && !defined(__clang__) && !defined(__GNUC__)
 	#if _MSC_VER >= 1600
 		#define PLF_TEST_MOVE_SEMANTICS_SUPPORT
 	#endif
@@ -12,7 +12,7 @@
 		#define PLF_TEST_INITIALIZER_LIST_SUPPORT
 	#endif
 
-	#if defined(_MSVC_LANG) && (_MSVC_LANG > 201703L)
+	#if defined(_MSVC_LANG) && (_MSVC_LANG > 201703L) && _MSC_VER >= 1923
 		#define PLF_TEST_CPP20_SUPPORT
 	#endif
 #elif defined(__cplusplus) && __cplusplus >= 201103L // C++11 support, at least
@@ -62,7 +62,7 @@
 		#define PLF_TEST_INITIALIZER_LIST_SUPPORT
 	#endif
 
-	#if __cplusplus > 201703L && ((defined(__clang__) && (__clang_major__ >= 10)) || (defined(__GNUC__) && __GNUC__ >= 10) || (!defined(__clang__) && !defined(__GNUC__))) // assume correct C++20 implementation for other compilers
+	#if __cplusplus > 201703L && ((defined(__clang__) && (__clang_major__ >= 13)) || (defined(__GNUC__) && __GNUC__ >= 10) || (!defined(__clang__) && !defined(__GNUC__))) // assume correct C++20 implementation for other compilers
 		#define PLF_TEST_CPP20_SUPPORT
 	#endif
 #endif
@@ -247,6 +247,21 @@ int main()
 
 			failpass("Iterator + distance test", distance(p_colony.begin(), plus_twenty) == 20);
 			failpass("Iterator - distance test", distance(plus_two_hundred, p_colony.begin()) == -200);
+
+			#ifdef PLF_TEST_CPP20_SUPPORT
+				colony<int *>::const_iterator plus_two_hundred_c = plus_two_hundred;
+				colony<int *> colony_copy(plus_twenty, plus_two_hundred_c);
+
+				total = 0;
+
+				for(colony<int *>::iterator the_iterator = p_colony.begin(); the_iterator != p_colony.end(); ++the_iterator)
+				{
+					++total;
+				}
+
+				failpass("Range-constructor with differing iterator types test", total == 180);
+			#endif
+
 
 			colony<int *>::iterator next_iterator = next(p_colony.begin(), 5);
 			colony<int *>::const_iterator prev_iterator = prev(p_colony.cend(), 300);
@@ -519,8 +534,8 @@ int main()
 			failpass("Erase randomly till-empty test", i_colony.size() == 0);
 
 
-			i_colony.clear();
-			i_colony.reshape(plf::limits(10000, i_colony.block_limits().max));
+			i_colony.reset();
+			i_colony.reshape(plf::colony_limits(10000, i_colony.block_limits().max));
 
 			i_colony.insert(30000, 1); // fill-insert 30000 elements
 
@@ -676,9 +691,11 @@ int main()
 
 			failpass("Advance + iterator-to-index test", index == 500);
 
-			colony<int>::iterator temp2 = i_colony.get_iterator_from_pointer(&(*temp_iterator));
+			colony<int>::iterator temp2 = i_colony.get_iterator(&(*temp_iterator));
+			colony<int>::const_iterator temp3 = i_colony.get_iterator(const_cast<colony<int>::const_pointer>(&(*temp_iterator)));
 
 			failpass("Pointer-to-iterator test", temp2 != i_colony.end());
+			failpass("Const_pointer-to-const_iterator test", temp3 != i_colony.end());
 
 			temp2 = i_colony.begin();
 			advance(temp2, 500);
@@ -694,12 +711,12 @@ int main()
 			failpass("Total erase test", i_colony.empty());
 
 
-			i_colony.clear();
-			i_colony.reshape(plf::limits(3, i_colony.block_limits().max));
+			i_colony.reset();
+			i_colony.reshape(plf::colony_limits(3, i_colony.block_limits().max));
 
 			const unsigned int temp_capacity2 = static_cast<unsigned int>(i_colony.capacity());
 			i_colony.reserve(100000);
-			failpass("Colony reserve test", temp_capacity2 != i_colony.capacity());
+			failpass("Post-reset reserve test", temp_capacity2 != i_colony.capacity());
 
 			i_colony.insert(110000, 1);
 
@@ -820,7 +837,7 @@ int main()
 				++counter;
 			}
 
-			failpass("Range-erase from begin() test 1", counter == 545 && i_colony.size() == 545);
+			failpass("Range-erase from begin()", counter == 545 && i_colony.size() == 545);
 
 
 
@@ -838,7 +855,7 @@ int main()
 				++counter;
 			}
 
-			failpass("Range-erase to end() test 1", counter == 345 && i_colony.size() == 345);
+			failpass("Range-erase to end()", counter == 345 && i_colony.size() == 345);
 
 
 
@@ -1216,7 +1233,7 @@ int main()
 
 			failpass("Range constructor test", i_colony2.size() == 3);
 
-			colony<int> i_colony3(5000, 2, plf::limits(100, 1000));
+			colony<int> i_colony3(5000, 2, plf::colony_limits(100, 1000));
 
 			failpass("Fill construction test", i_colony3.size() == 5000);
 
@@ -1230,8 +1247,14 @@ int main()
 
 			failpass("Range insertion test", i_colony2.size() == 500503);
 
+			#ifdef PLF_TEST_CPP20_SUPPORT
+	 			i_colony2.insert(some_ints.begin(), some_ints.cend());
+
+	 			failpass("Range insertion with differing iterators test", i_colony2.size() == 501003);
+			#endif
+
 			i_colony3.clear();
-			i_colony2.clear();
+			i_colony2.reset();
 			i_colony2.reserve(50000);
 			i_colony2.insert(60000, 1);
 
@@ -1504,7 +1527,7 @@ int main()
 			title2("Misc function tests");
 
 			colony<int> colony1;
-			colony1.reshape(plf::limits(50, 100));
+			colony1.reshape(plf::colony_limits(50, 100));
 
 			colony1.insert(27);
 
@@ -1518,13 +1541,13 @@ int main()
 			failpass("Change_group_sizes max-size test", colony1.capacity() == 200);
 
 			colony1.clear();
-			colony1.reshape(plf::limits(200, 2000));
+			colony1.reshape(plf::colony_limits(200, 2000));
 
 			colony1.insert(27);
 
 			failpass("Reinitialize min-size test", colony1.capacity() == 200);
 
-			plf::limits temp_limits = colony1.block_limits();
+			plf::colony_limits temp_limits = colony1.block_limits();
 
 			failpass("get_block_limits test", temp_limits.min == 200 && temp_limits.max == 2000);
 
@@ -1535,11 +1558,11 @@ int main()
 
 			failpass("Reinitialize max-size test", colony1.capacity() == 5200);
 
-			colony1.reshape(plf::limits(500, 500));
+			colony1.reshape(plf::colony_limits(500, 500));
 
 			failpass("Change_group_sizes resize test", colony1.capacity() == 3500);
 
-			colony1.reshape(plf::limits(200, 200));
+			colony1.reshape(plf::colony_limits(200, 200));
 
 			failpass("Change_maximum_group_size resize test", colony1.capacity() == 3400);
 
@@ -1729,8 +1752,8 @@ int main()
 			{
 				colony<int> colony1, colony2;
 
-				colony1.reshape(plf::limits(200, 200));
-				colony2.reshape(plf::limits(200, 200));
+				colony1.reshape(plf::colony_limits(200, 200));
+				colony2.reshape(plf::colony_limits(200, 200));
 
 				for(int number = 0; number != 100; ++number)
 				{
@@ -1765,7 +1788,7 @@ int main()
 
 
 			{
-				colony<int> colony1(plf::limits(200, 200)), colony2(plf::limits(200, 200));
+				colony<int> colony1(plf::colony_limits(200, 200)), colony2(plf::colony_limits(200, 200));
 
 				for(int number = 0; number != 100; ++number)
 				{
@@ -1937,12 +1960,61 @@ int main()
 				erase_if(i_colony, std::bind2nd(std::greater<int>(), 499));
 			#endif
 
-			failpass("erase_if test",  static_cast<int>(i_colony.size()) == 500);
+			failpass("erase_if test",	static_cast<int>(i_colony.size()) == 500);
+
 		}
 
+		{
+			title2("data() tests");
+
+			colony<int> i_colony(10000, 5);
+
+			int sum1 = 0, sum2 = 0, range1 = 0, range2 = 0;
 
 
+			// Erase half of all elements and sum the rest:
+			for (colony<int>::iterator it = i_colony.begin(); it != i_colony.end(); ++it)
+			{
+				it = i_colony.erase(it);
+				sum1 += *it;
+				++range1;
+			}
+
+
+			colony<int>::colony_data *data = i_colony.data();
+
+			// Manually sum using raw memory blocks:
+			for (unsigned int block_num = 0; block_num != data->number_of_blocks; ++block_num)
+			{
+				colony<int>::aligned_element_type *current_element = data->block_pointers[block_num];
+				const unsigned char *bitfield_location = data->bitfield_pointers[block_num];
+				const size_t capacity = data->block_capacities[block_num];
+
+				size_t char_index = 0;
+				unsigned char offset = 0;
+
+				for (size_t index = 0; index != capacity; ++index, ++current_element)
+				{
+					if ((bitfield_location[char_index] >> offset) & 1)
+					{
+						sum2 += *(reinterpret_cast<int *>(current_element));
+						++range2;
+					}
+
+					if (++offset == 8)
+					{
+						offset = 0;
+						++char_index;
+					}
+				}
+			}
+
+			delete data;
+
+			failpass("Manual summing pass over elements obtained from data()", (sum1 == sum2) && (range1 == range2));
+		}
 	}
+
 	title1("Test Suite PASS - Press ENTER to Exit");
 	getchar();
 
