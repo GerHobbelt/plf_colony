@@ -213,7 +213,7 @@
 
 
 
-#include <algorithm> // std::fill_n, std::sort
+#include <algorithm> // std::fill_n, std::sort, lexicographical_compare
 #include <cassert>	// assert
 #include <cstring>	// memset, memcpy, size_t
 #include <limits>  // std::numeric_limits
@@ -242,36 +242,6 @@
 
 namespace plf
 {
-
-
-#if defined(PLF_CPP20_SUPPORT) && !defined(PLF_CONCEPTS_DEFINED)
-	#define PLF_CONCEPTS_DEFINED
-	template<class type1>
-	concept convertable_to_bool = std::convertible_to<type1, bool>;
-
-
-
-	template<class type1>
-	concept boolean_testable = convertable_to_bool<type1> &&
-	   requires (type1 &&b)
-	{
-		{ !std::forward<type1>(b) } -> convertable_to_bool;
-	};
-
-
-
-	template<class type1, class type2>
-	concept actually_equality_comparable_with =
-		requires(const std::remove_reference_t<type1> &t1, const std::remove_reference_t<type2> &t2)
-	{
-		{ t1 == t2 } -> boolean_testable;
-		{ t1 != t2 } -> boolean_testable;
-		{ t2 == t1 } -> boolean_testable;
-		{ t2 != t1 } -> boolean_testable;
-	};
-#endif
-
-
 
 struct colony_limits // for use in block_capacity setting/getting functions and constructors
 {
@@ -1959,12 +1929,12 @@ public:
 
 
 
-	// Range constructor - differing iterators:
+	// Range constructor - sentinels:
 
 	#ifdef PLF_CPP20_SUPPORT
-		template <class iterator_type1, class iterator_type2>
-			requires (!std::same_as<iterator_type1, iterator_type2> && std::equality_comparable_with<iterator_type1, iterator_type2> && !std::integral<iterator_type1> && !std::integral<iterator_type2>)
-		colony(const iterator_type1 &first, const iterator_type2 &last, const plf::colony_limits capacities = plf::colony_limits(PLF_MIN_BLOCK_CAPACITY, std::numeric_limits<skipfield_type>::max()), const allocator_type &alloc = allocator_type()):
+		template <class iterator_type, class sentinel>
+			requires (!(std::convertible_to<sentinel, iterator_type> || std::convertible_to<iterator_type, sentinel> || std::integral<iterator_type> || std::integral<sentinel>) && std::sentinel_for<sentinel, iterator_type>)
+		colony(const iterator_type &first, const sentinel &last, const plf::colony_limits capacities = plf::colony_limits(PLF_MIN_BLOCK_CAPACITY, std::numeric_limits<skipfield_type>::max()), const allocator_type &alloc = allocator_type()):
 			allocator_type(alloc),
 			groups_with_erasures_list_head(NULL),
 			unused_groups_head(NULL),
@@ -1977,7 +1947,7 @@ public:
 				check_skipfield_conformance();
 			#endif
 			check_capacities_conformance(capacities);
-			assign<iterator_type1, iterator_type2>(first, last);
+			assign<iterator_type, sentinel>(first, last);
 		}
 	#endif
 
@@ -3109,15 +3079,15 @@ public:
 
 
 
-	// Range insert for differing iterator types eg. sentinels:
+	// Range insert for use with sentinels:
 
 	#ifdef PLF_CPP20_SUPPORT
-		template <class iterator_type1, class iterator_type2>
-			requires (!std::same_as<iterator_type1, iterator_type2> && std::equality_comparable_with<iterator_type1, iterator_type2> && !std::integral<iterator_type1> && !std::integral<iterator_type2>)
-		inline void insert (const iterator_type1 first, const iterator_type2 last)
+		template <class iterator_type, class sentinel>
+			requires (!(std::convertible_to<sentinel, iterator_type> || std::convertible_to<iterator_type, sentinel> || std::integral<iterator_type> || std::integral<sentinel>) && std::sentinel_for<sentinel, iterator_type>)
+		inline void insert (const iterator_type first, const sentinel last)
 		{
 			size_type distance = 0;
-			for(iterator_type1 current = first; current != last; ++current, ++distance) {};
+			for(iterator_type current = first; current != last; ++current, ++distance) {};
 			range_insert(first, distance);
 		}
 	#endif
@@ -3906,15 +3876,15 @@ public:
 
 
 
-	// Range insert for differing iterator types eg. sentinels:
+	// Range assign for use with sentinels:
 
 	#ifdef PLF_CPP20_SUPPORT
-		template <class iterator_type1, class iterator_type2>
-			requires (!std::same_as<iterator_type1, iterator_type2> && std::equality_comparable_with<iterator_type1, iterator_type2> && !std::integral<iterator_type1> && !std::integral<iterator_type2>)
-		inline void assign (const iterator_type1 first, const iterator_type2 last)
+		template <class iterator_type, class sentinel>
+			requires (!(std::convertible_to<sentinel, iterator_type> || std::convertible_to<iterator_type, sentinel> || std::integral<iterator_type> || std::integral<sentinel>) && std::sentinel_for<sentinel, iterator_type>)
+		inline void assign (const iterator_type first, const sentinel last)
 		{
 			size_type distance = 0;
-			for(iterator_type1 current = first; current != last; ++current, ++distance) {};
+			for(iterator_type current = first; current != last; ++current, ++distance) {};
 			range_assign(first, distance);
 		}
 	#endif
@@ -3959,6 +3929,13 @@ public:
 	inline size_type size() const PLF_NOEXCEPT
 	{
 		return total_size;
+	}
+
+
+
+	inline static PLF_CONSTEXPR size_type block_metadata_memory(const size_type block_capacity)
+	{
+		return sizeof(group) + ((block_capacity + 1) * sizeof(skipfield_type));
 	}
 
 
@@ -4185,6 +4162,15 @@ public:
 
 
 
+	#ifdef PLF_CPP20_SUPPORT
+		friend auto operator <=> (const colony &lh, const colony &rh)
+		{
+			return std::lexicographical_compare_three_way(lh.begin(), lh.end(), rh.begin(), rh.end());
+		}
+	#endif
+
+
+
 	void shrink_to_fit()
 	{
 		if (total_size == total_capacity)
@@ -4224,7 +4210,7 @@ public:
 
 		if (new_capacity > max_size())
 		{
-			throw std::length_error("Capacity requested via reserve() greater than max_size()");
+			throw std::length_error("Capacity requested via reserve() greater than maximum size returned by block_limits()");
 		}
 
 		new_capacity -= total_capacity;
