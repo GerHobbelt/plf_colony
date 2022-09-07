@@ -1,3 +1,9 @@
+plf-colony (7.00-1) unstable; urgency=medium
+
+  * New upstream release.
+
+ -- Adam Borowski <kilobyte@angband.pl>  Thu, 08 Sep 2022 00:33:11 +0200
+
 plf-colony (6.33-1) unstable; urgency=medium
 
   * New upstream release.
