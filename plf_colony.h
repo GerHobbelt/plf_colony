@@ -175,7 +175,7 @@
 		#define PLF_CONSTEXPR constexpr
 	#endif
 
-	#if __cplusplus > 201704L && ((defined(_LIBCPP_VERSION) && _LIBCPP_VERSION >= 13) || !defined(_LIBCPP_VERSION)) && ((defined(__clang__) && (__clang_major__ >= 13)) || (defined(__GNUC__) && __GNUC__ >= 10) || (!defined(__clang__) && !defined(__GNUC__)))
+	#if __cplusplus > 201704L && ((((defined(__clang__) && !defined(__APPLE_CC__) && __clang_major__ >= 14) || (defined(__GNUC__) && (__GNUC__ > 11 || (__GNUC__ == 11 && __GNUC_MINOR__ > 0)))) && ((defined(_LIBCPP_VERSION) && _LIBCPP_VERSION >= 14) || (defined(__GLIBCXX__) && __GLIBCXX__ >= 201806L))) || (!defined(__clang__) && !defined(__GNUC__)))
 		#define PLF_CPP20_SUPPORT
 		#undef PLF_CONSTFUNC
 		#define PLF_CONSTFUNC constexpr
@@ -4949,9 +4949,9 @@ public:
 			{
 				distance += iterator2.skipfield_pointer - iterator1.skipfield_pointer;
 			}
- 			else if (iterator2.group_pointer->last_endpoint - 1 >= iterator2.element_pointer || iterator2.element_pointer + 1 + *(iterator2.skipfield_pointer + 1) == iterator2.group_pointer->last_endpoint) // ie. if iterator2 is .end() or the last element in the block
+ 			else if (iterator1.element_pointer == iterator2.group_pointer->elements + *(iterator2.group_pointer->skipfield) && iterator2.element_pointer + 1 + *(iterator2.skipfield_pointer + 1) == iterator2.group_pointer->last_endpoint) // ie. if iterator1 is at beginning of block (have to check this in case first and last are in the same block to begin with) and iterator2 is last element in the block
 			{
-				distance += static_cast<difference_type>(iterator2.group_pointer->size) - (iterator2.group_pointer->last_endpoint - iterator2.element_pointer);
+				distance += static_cast<difference_type>(iterator2.group_pointer->size) - 1;
 			}
 			else
 			{
@@ -5053,7 +5053,9 @@ public:
 
 		colony_reverse_iterator (const colony_iterator<is_const_r> &source) PLF_NOEXCEPT:
 			current(source)
-		{}
+		{
+			++(*this);
+		}
 
 
 		#ifdef PLF_DEFAULT_TEMPLATE_ARGUMENT_SUPPORT
@@ -5063,7 +5065,9 @@ public:
 			colony_reverse_iterator (const colony_iterator<!is_const_r> &source) PLF_NOEXCEPT:
 		#endif
 			current(source)
-		{}
+		{
+			++(*this);
+		}
 
 
 		#ifdef PLF_MOVE_SEMANTICS_SUPPORT
@@ -5086,6 +5090,7 @@ public:
 		colony_reverse_iterator& operator = (const colony_iterator<is_const_r> &source) PLF_NOEXCEPT
 		{
 			current = source;
+			++current;
 			return *this;
 		}
 
@@ -5098,6 +5103,7 @@ public:
 		#endif
 		{
 			current = source;
+			++current;
 			return *this;
 		}
 

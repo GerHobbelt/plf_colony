@@ -1,3 +1,5 @@
+// Basic feature testing for colony.
+
 #define PLF_COLONY_TEST_DEBUG
 
 #if defined(_MSC_VER) && !defined(__clang__) && !defined(__GNUC__)
@@ -62,7 +64,7 @@
 		#define PLF_TEST_INITIALIZER_LIST_SUPPORT
 	#endif
 
-	#if __cplusplus > 201704L && ((defined(__clang__) && (__clang_major__ >= 13)) || (defined(__GNUC__) && __GNUC__ >= 10) || (!defined(__clang__) && !defined(__GNUC__))) // assume correct C++20 implementation for other compilers
+	#if __cplusplus > 201704L && ((((defined(__clang__) && !defined(__APPLE_CC__) && __clang_major__ >= 14) || (defined(__GNUC__) && (__GNUC__ > 11 || (__GNUC__ == 11 && __GNUC_MINOR__ > 0)))) && ((defined(_LIBCPP_VERSION) && _LIBCPP_VERSION >= 14) || (defined(__GLIBCXX__) && __GLIBCXX__ >= 201806L))) || (!defined(__clang__) && !defined(__GNUC__)))
 		#define PLF_TEST_CPP20_SUPPORT
 	#endif
 #endif
@@ -247,6 +249,81 @@ int main()
 			failpass("Iterator + distance test", distance(p_colony.begin(), plus_twenty) == 20);
 			failpass("Iterator - distance test", distance(plus_two_hundred, p_colony.begin()) == -200);
 
+			{
+				colony<int> d_colony(1000, 1, {20, 20});
+
+				for (colony<int>::iterator current = d_colony.begin(), end = d_colony.end(); current!= end;)
+				{
+					if ((rand() & 7) == 0)
+					{
+						current = d_colony.erase(current);
+					}
+					else
+					{
+						++current;
+					}
+				}
+
+				int d_size = d_colony.size();
+
+				for (int counter = 0; counter != 10000; ++counter)
+				{
+					const int dist1 = rand() % (d_size - 2), dist2 = rand() % ((d_size - 2) - dist1);
+					colony<int>::iterator first = d_colony.begin(), last;
+					advance(first, dist1);
+					last = first;
+					advance(last, dist2);
+
+					const int dist = distance(first, last);
+
+					if (dist != dist2)
+					{
+						printf("positive distance overload fuzz-test failed, real distance = %d, reported distance = %d, counter = %d, suite loop = %d", dist2, dist, counter, looper);
+						getchar();
+						abort();
+					}
+				}
+
+				failpass("Positive distance overload fuzz-test", true);
+
+
+				for (colony<int>::iterator current = d_colony.begin(), end = d_colony.end(); current!= end;)
+				{
+					if ((rand() & 3) == 0)
+					{
+						current = d_colony.erase(current);
+					}
+					else
+					{
+						++current;
+					}
+				}
+
+				d_size = d_colony.size();
+
+
+				for (int counter = 0; counter != 10000; ++counter)
+				{
+					const int dist1 = rand() % (d_size - 2), dist2 = rand() % (d_size - 2);
+					colony<int>::iterator first = d_colony.begin(), last = d_colony.begin();
+					advance(first, dist1);
+					advance(last, dist2);
+
+					const int dist = distance(first, last);
+
+					if (dist != dist2 - dist1)
+					{
+						printf("positive/negative distance overload fuzz-test failed, real distance = %d, reported distance = %d, counter = %d, suite loop = %d", dist2, dist, counter, looper);
+						getchar();
+						abort();
+					}
+				}
+
+				failpass("Positive/negative distance overload fuzz-test", true);
+			}
+
+
+
 			#ifdef PLF_TEST_CPP20_SUPPORT
 				colony<int *>::const_iterator plus_two_hundred_c = plus_two_hundred;
 				colony<int *> colony_copy(plus_twenty, plus_two_hundred_c);
@@ -390,7 +467,7 @@ int main()
 			for(colony<int *>::reverse_iterator the_iterator = p_colony.rbegin(); the_iterator != p_colony.rend(); ++the_iterator)
 			{
 				colony<int *>::iterator it = the_iterator.base();
-				the_iterator = p_colony.erase(--it);
+				p_colony.erase(--it);
 				++total;
 			}
 
@@ -2008,6 +2085,7 @@ int main()
 			failpass("erase_if test",	static_cast<int>(i_colony.size()) == 500);
 
 		}
+
 
 		{
 			title2("data() tests");
