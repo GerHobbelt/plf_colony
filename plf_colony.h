@@ -243,7 +243,6 @@
 	#include <concepts>
 	#include <compare> // std::strong_ordering, std::to_address
 	#include <ranges>
-	#include <bit> // bit_cast
 
 	namespace plf
 	{
@@ -330,24 +329,16 @@ namespace plf
 
 
 
-	// To enable conversion when allocator supplies non-raw pointers:
-	template <class destination_pointer_type, class source_pointer_type>
-	static PLF_CONSTFUNC destination_pointer_type convert_pointer(const source_pointer_type source_pointer) PLF_NOEXCEPT
+	// To enable conversion to void * when allocator supplies non-raw pointers:
+	template <class source_pointer_type>
+	static PLF_CONSTFUNC void * convert_to_void(const source_pointer_type source_pointer) PLF_NOEXCEPT
 	{
-		#if defined(PLF_TYPE_TRAITS_SUPPORT) && defined(PLF_CPP20_SUPPORT) // constexpr necessary to avoid a branch for every call
-			if constexpr (std::is_trivial<destination_pointer_type>::value && std::is_trivial<source_pointer_type>::value)
-			{
-				return std::bit_cast<destination_pointer_type>(source_pointer);
-			}
-			else
-			{
-				return destination_pointer_type(std::to_address(source_pointer));
-			}
+		#if defined(PLF_CPP20_SUPPORT)
+			return static_cast<void *>(std::to_address(source_pointer));
 		#else
-			return destination_pointer_type(&*source_pointer);
+			return static_cast<void *>(&*source_pointer);
 		#endif
 	}
-
 #endif
 
 
@@ -367,7 +358,7 @@ enum colony_priority { performance, memory_use };
 template <class element_type, class allocator_type = std::allocator<element_type>, plf::colony_priority priority = plf::performance>
 class colony : private allocator_type // Empty base class optimisation - inheriting allocator functions
 {
-	typedef typename plf::conditional<(priority == plf::performance && sizeof(element_type) > 10), unsigned short, unsigned char>::type		skipfield_type; // Note: unsigned short is equivalent to uint_least16_t ie. Using 16-bit unsigned integer in best-case scenario, greater-than-16-bit unsigned integer where platform doesn't support 16-bit types. unsigned char is always == 1 byte, as opposed to uint_8, which may not be.
+	typedef typename plf::conditional<(priority == plf::performance && (sizeof(element_type) > 10 || alignof(element_type) > 10)), unsigned short, unsigned char>::type		skipfield_type; // Note: unsigned short is equivalent to uint_least16_t ie. Using 16-bit unsigned integer in best-case scenario, greater-than-16-bit unsigned integer where platform doesn't support 16-bit types. unsigned char is always == 1 byte, as opposed to uint_8, which may not be.
 
 public:
 	// Standard container typedefs:
@@ -385,8 +376,8 @@ public:
 	#endif
 
 	typedef element_type value_type;
-	typedef element_type &																		reference;
-	typedef const element_type &																const_reference;
+	typedef element_type &			reference;
+	typedef const element_type &	const_reference;
 
 
 	// Iterator forward declarations:
@@ -398,7 +389,7 @@ public:
 
 	template <bool is_const_r> class			colony_reverse_iterator;
 	typedef colony_reverse_iterator<false>	reverse_iterator;
-	typedef colony_reverse_iterator<true>		const_reverse_iterator;
+	typedef colony_reverse_iterator<true>	const_reverse_iterator;
 	friend class colony_reverse_iterator<false>;
 	friend class colony_reverse_iterator<true>;
 
@@ -443,6 +434,25 @@ private:
 	static size_type get_aligned_block_capacity(const skipfield_type elements_per_group)
 	{
 		return ((elements_per_group * (sizeof(aligned_element_struct) + sizeof(skipfield_type))) + sizeof(skipfield_type) + sizeof(aligned_allocation_struct) - 1) / sizeof(aligned_allocation_struct);
+	}
+
+
+	// To enable conversion when allocator supplies non-raw pointers:
+	template <class destination_pointer_type, class source_pointer_type>
+	static PLF_CONSTFUNC destination_pointer_type convert_pointer(const source_pointer_type source_pointer) PLF_NOEXCEPT
+	{
+		#if defined(PLF_TYPE_TRAITS_SUPPORT) && defined(PLF_CPP20_SUPPORT) // constexpr necessary to avoid a branch for every call
+			if constexpr (std::is_trivial<destination_pointer_type>::value)
+			{
+				return reinterpret_cast<destination_pointer_type>(std::to_address(source_pointer));
+			}
+			else
+			{
+				return destination_pointer_type(std::to_address(source_pointer));
+			}
+		#else
+			return destination_pointer_type(&*source_pointer);
+		#endif
 	}
 
 
@@ -512,7 +522,7 @@ private:
 				erasures_list_previous_group(NULL),
 				group_number((previous == NULL) ? 0 : previous->group_number + 1u)
 			{
-				std::memset(convert_pointer<void *>(skipfield), 0, sizeof(skipfield_type) * (static_cast<size_type>(elements_per_group) + 1u));
+				std::memset(convert_to_void(skipfield), 0, sizeof(skipfield_type) * (static_cast<size_type>(elements_per_group) + 1u));
 			}
 		#else
 			// This is a hack around the fact that allocator_type::construct only supports copy construction in C++03 and copy elision does not occur on the vast majority of compilers in this circumstance. So to avoid running out of memory (and losing performance) from allocating the same block twice, we 'move' in the 'copy' constructor.
@@ -537,9 +547,10 @@ private:
 				capacity(source.capacity),
 				size(1),
 				erasures_list_next_group(NULL),
+				erasures_list_previous_group(NULL),
 				group_number((source.previous_group == NULL) ? 0 : source.previous_group->group_number + 1u)
 			{
-				std::memset(convert_pointer<void *>(skipfield), 0, sizeof(skipfield_type) * (static_cast<size_type>(capacity) + 1u));
+				std::memset(convert_to_void(skipfield), 0, sizeof(skipfield_type) * (static_cast<size_type>(capacity) + 1u));
 			}
 		#endif
 
@@ -556,7 +567,7 @@ private:
 			erasures_list_previous_group = NULL;
 			group_number = group_num;
 
-			std::memset(convert_pointer<void *>(skipfield), 0, sizeof(skipfield_type) * static_cast<size_type>(capacity)); // capacity + 1 is not necessary here as the final skipfield node is never written to after initialization
+			std::memset(convert_to_void(skipfield), 0, sizeof(skipfield_type) * static_cast<size_type>(capacity)); // capacity + 1 is not necessary here as the final skipfield node is never written to after initialization
 		}
 	};
 
@@ -2687,7 +2698,7 @@ public:
 
 				if (distance_to_end > 2) // if the skipblock is longer than 2 nodes, fill in the middle nodes with non-zero values so that get_iterator() and is_active will work
 				{
-					std::memset(convert_pointer<void *>(iterator1.skipfield_pointer + 1), 1, sizeof(skipfield_type) * (distance_to_end - 2));
+					std::memset(convert_to_void(iterator1.skipfield_pointer + 1), 1, sizeof(skipfield_type) * (distance_to_end - 2));
 				}
 
 				iterator1.group_pointer->size = static_cast<skipfield_type>(iterator1.group_pointer->size - number_of_group_erasures);
@@ -2874,7 +2885,7 @@ public:
 
 				if (distance_to_iterator2 > 2) // if the skipblock is longer than 2 nodes, fill in the middle nodes with non-zero values so that get_iterator() and is_active() will work
 				{
-					std::memset(convert_pointer<void *>(current_saved.skipfield_pointer + 1), 1, sizeof(skipfield_type) * (distance_to_iterator2 - 2));
+					std::memset(convert_to_void(current_saved.skipfield_pointer + 1), 1, sizeof(skipfield_type) * (distance_to_iterator2 - 2));
 				}
 
 				if (iterator1.element_pointer == begin_iterator.element_pointer)
@@ -2894,9 +2905,9 @@ public:
 					while(current.element_pointer != iterator2.element_pointer)
 					{
 						PLF_DESTROY(allocator_type, *this, convert_pointer<pointer>(current.element_pointer));
-						++current.skipfield_pointer;
-						current.element_pointer += static_cast<size_type>(*current.skipfield_pointer) + 1u;
-						current.skipfield_pointer += *current.skipfield_pointer;
+						const skipfield_type skip = *(++current.skipfield_pointer);
+						current.element_pointer += static_cast<size_type>(skip) + 1u;
+						current.skipfield_pointer += skip;
 					}
 				}
 
@@ -3190,14 +3201,57 @@ public:
 
 	static PLF_CONSTFUNC size_type block_metadata_memory(const size_type block_capacity) PLF_NOEXCEPT
 	{
-		return sizeof(group) + ((get_aligned_block_capacity(block_capacity) - block_capacity) * sizeof(aligned_allocation_struct));
+		return sizeof(group) + ((get_aligned_block_capacity(static_cast<skipfield_type>(block_capacity)) - block_capacity) * sizeof(aligned_allocation_struct));
 	}
 
 
 
-	static PLF_CONSTFUNC size_type block_allocation_amount(const size_type block_capacity) PLF_NOEXCEPT
+	static PLF_CONSTFUNC size_type block_allocation_amount(size_type block_capacity) PLF_NOEXCEPT
 	{
-		return sizeof(aligned_allocation_struct) * get_aligned_block_capacity(block_capacity);
+		if (block_capacity > std::numeric_limits<skipfield_type>::max())
+		{
+			block_capacity = std::numeric_limits<skipfield_type>::max();
+		}
+
+		return sizeof(aligned_allocation_struct) * get_aligned_block_capacity(static_cast<skipfield_type>(block_capacity));
+	}
+
+
+
+	static PLF_CONSTFUNC size_type max_elements_per_allocation(const size_type allocation_amount) PLF_NOEXCEPT
+	{
+		// Get a rough approximation of the number of elements + skipfield units we can fit in the amount expressed:
+		size_type num_units = allocation_amount / (sizeof(aligned_element_struct) + sizeof(skipfield_type));
+		PLF_CONSTFUNC colony_limits hard_capacities = block_capacity_hard_limits();
+
+		// Truncate the amount to the implementation's hard block capacity max limit:
+		if (num_units > hard_capacities.max)
+		{
+			num_units = hard_capacities.max;
+		}
+
+		// Adjust num_units downward based on (a) the additional skipfield node necessary per-block in this implementation and
+		// (b) any additional memory waste required in order to allocate the skipfield in multiples of the element type's alignof:
+		if ((	/* Explanation: elements and skipfield are allocated in a single allocation to save performance.
+				In order for the elements to be correctly aligned in memory, this single allocation is aligned to the alignof
+				the element type, so the first line below is the allocation amount in bytes required for the skipfield
+				when allocated in multiples of the element type's alignof. The + sizeof(skipfield_type) adds the additional skipfield node
+				as mentioned, and the (num_units + 1) minus 1 byte rounds up the integer division: */
+			((((num_units + 1) * sizeof(aligned_allocation_struct)) - 1 + sizeof(skipfield_type)) / sizeof(aligned_allocation_struct))
+				/* the second line is the amount of memory in bytes necessary for the elements themselves: */
+			+ (num_units * sizeof(aligned_element_struct)))
+				/* then we compare against the desired allocation amount: */
+			> allocation_amount)
+		{
+			--num_units; // In this implementation it is not possible for the necessary adjustment to be greater than 1 element+skipfield sizeof
+		}
+
+		if (num_units < hard_capacities.min)
+		{
+			num_units = 0;
+		}
+
+		return num_units;
 	}
 
 
@@ -4315,6 +4369,10 @@ public:
 	class colony_iterator
 	{
 	private:
+		typedef typename colony::group_pointer_type 		group_pointer_type;
+		typedef typename colony::aligned_pointer_type 	aligned_pointer_type;
+		typedef typename colony::skipfield_pointer_type skipfield_pointer_type;
+
 		group_pointer_type		group_pointer;
 		aligned_pointer_type 	element_pointer;
 		skipfield_pointer_type	skipfield_pointer;
@@ -4982,6 +5040,11 @@ public:
 	template <bool is_const_r>
 	class colony_reverse_iterator
 	{
+	private:
+		typedef typename colony::group_pointer_type 		group_pointer_type;
+		typedef typename colony::aligned_pointer_type 	aligned_pointer_type;
+		typedef typename colony::skipfield_pointer_type skipfield_pointer_type;
+
 	protected:
 		iterator current;
 
@@ -4996,6 +5059,7 @@ public:
 		typedef typename plf::conditional<is_const_r, typename colony::const_reference, typename colony::reference>::type	reference;
 
 		friend class colony;
+
 
 		template <class distance_type>
 		friend void advance(colony_reverse_iterator &it, distance_type distance)
@@ -5196,9 +5260,9 @@ public:
 		// In this case we have to redefine the algorithm, rather than using the internal iterator's -- operator, in order for the reverse_iterator to be allowed to reach rend() ie. begin_iterator - 1
 		colony_reverse_iterator & operator ++ ()
 		{
-			colony::group_pointer_type &group_pointer = current.group_pointer;
-			colony::aligned_pointer_type &element_pointer = current.element_pointer;
-			colony::skipfield_pointer_type &skipfield_pointer = current.skipfield_pointer;
+			group_pointer_type &group_pointer = current.group_pointer;
+			aligned_pointer_type &element_pointer = current.element_pointer;
+			skipfield_pointer_type &skipfield_pointer = current.skipfield_pointer;
 
 			assert(group_pointer != NULL);
 
